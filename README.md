@@ -1,7 +1,8 @@
 # YaagwaDB Test
 
-Development environment and tests for YaagwaDB, and Docker containers for WordPress using YaagwaDB.
+Development environment and tests for YaagwaDB, including Docker containers for testing YaagwaDB with WordPress.
 
+- [YaagwaDB](https://github.com/dannyexmakina/yaagwadb)
 - [Development environment and tests](docs/en/development.md)
 
 ## WordPress
@@ -70,8 +71,9 @@ task down
 
 # YaagwaDB テスト
 
-YaagwaDB の開発環境・テストと、YaagwaDB を使用した WordPress の Docker コンテナ群。
+YaagwaDB の開発環境・テスト。WordPress による YaagwaDB のテスト用 Docker コンテナ群を含む。
 
+- [YaagwaDB](https://github.com/dannyexmakina/yaagwadb)
 - [開発環境とテスト](docs/ja/development.md)
 
 ## WordPress
