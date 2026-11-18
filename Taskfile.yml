@@ -1,0 +1,86 @@
+version: "3"
+
+vars:
+  COMPOSE: docker compose -f {{.TASKFILE_DIR}}/compose.yaml
+  CONFIG: /etc/yaagwadb/config.toml
+  MOUNT_POINT: /var/www/html/wp-content/uploads
+
+tasks:
+  default:
+    cmds:
+      - task --list-all -t {{.TASKFILE}}
+    silent: true
+
+  build:
+    desc: wordpress イメージをビルドする
+    cmds:
+      - "{{.COMPOSE}} build"
+
+  up:
+    desc: ビルドして起動する
+    cmds:
+      - "{{.COMPOSE}} up -d --build"
+
+  down:
+    desc: 停止する
+    cmds:
+      - "{{.COMPOSE}} down"
+
+  clean:
+    desc: 停止し、全データ（DB・WordPress・MinIO のボリュームと data/）を削除する
+    prompt: 全データを削除します。続行しますか？
+    cmds:
+      - "{{.COMPOSE}} down -v"
+      - rm -rf {{.TASKFILE_DIR}}/data
+
+  logs:
+    desc: ログを表示する（-- の後にサービス名を指定可能）
+    cmds:
+      - "{{.COMPOSE}} logs -f {{.CLI_ARGS}}"
+
+  status:
+    desc: YaagwaDB のファイル件数とタスクキューの状態を表示する
+    cmds:
+      - "{{.COMPOSE}} exec wordpress yaagwadb -c {{.CONFIG}} status"
+
+  tasks:
+    desc: YaagwaDB のタスクを表示する（-- の後にオプションを指定可能）
+    cmds:
+      - "{{.COMPOSE}} exec wordpress yaagwadb -c {{.CONFIG}} tasks {{.CLI_ARGS}}"
+
+  list:
+    desc: uploads のファイル一覧を表示する
+    cmds:
+      - "{{.COMPOSE}} exec -u www-data wordpress find {{.MOUNT_POINT}}"
+
+  shell:
+    desc: wordpress コンテナで www-data のシェルを uploads で起動する
+    interactive: true
+    cmds:
+      - "{{.COMPOSE}} exec -u www-data -w {{.MOUNT_POINT}} wordpress bash"
+
+  checksum:
+    desc: uploads の全ファイルの SHA-256 を表示する
+    cmds:
+      - "{{.COMPOSE}} exec -u www-data wordpress sh -c 'cd {{.MOUNT_POINT}} && find . -type f -print0 | sort -z | xargs -0 -r sha256sum'"
+
+  recovery:wipe:
+    desc: wordpress を停止し、YaagwaDB のローカルデータ（data/yaagwadb）を削除して起動する。daemon が MinIO からリストアする
+    vars:
+      DELETED: "{{.TASKFILE_DIR}}/tmp/checksum-deleted.txt"
+    cmds:
+      - "{{.COMPOSE}} stop wordpress"
+      - rm -rf {{.TASKFILE_DIR}}/data/yaagwadb
+      - "{{.COMPOSE}} start wordpress"
+      - task checksum --silent > {{.DELETED}}
+      - sleep 5
+
+  test:recovery:
+    desc: リカバリーテスト。recovery:wipe の前後で uploads の SHA-256 が一致するか確認する
+    vars:
+      BEFORE: "{{.TASKFILE_DIR}}/tmp/checksum-before.txt"
+      AFTER: "{{.TASKFILE_DIR}}/tmp/checksum-after.txt"
+    cmds:
+      - task checksum --silent > {{.BEFORE}}
+      - task: recovery:wipe
+      - task checksum --silent > {{.AFTER}}

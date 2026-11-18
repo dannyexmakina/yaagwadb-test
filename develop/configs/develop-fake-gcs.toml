@@ -1,0 +1,22 @@
+# Paths inside the development container. Data lives in the develop-data volume, separated per object storage
+data_directory = "/var/lib/yaagwadb/fake-gcs"
+socket = "/var/lib/yaagwadb/fake-gcs/daemon.sock"
+log_level = "debug"
+
+[object_storage]
+# Stored in fake-gcs from develop/compose.yaml (task containers:develop starts it and creates the bucket).
+# The emulator is set with STORAGE_EMULATOR_HOST in develop/compose.yaml
+kind = "gcs"
+bucket = "yaagwadb-develop"
+
+[daemon]
+# Kept short to make behavior easy to observe
+index_archive_interval = "1m"
+logical_delete_grace_period = "5m"
+
+[mount]
+point = "/mnt/yaagwadb"
+
+[hrana]
+# All addresses inside the container; compose publishes the port only on the host's localhost
+listen = "0.0.0.0:8080"

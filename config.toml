@@ -1,0 +1,15 @@
+data_directory = "/var/lib/yaagwadb"
+socket = "/var/lib/yaagwadb/daemon.sock"
+
+[object_storage]
+kind = "s3"
+bucket = "yaagwadb-wp"
+region = "us-east-1"
+endpoint = "http://minio:9000"
+
+[daemon]
+index_archive_interval = "1m"
+
+[mount]
+point = "/var/www/html/wp-content/uploads"
+allow_other = true

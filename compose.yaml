@@ -1,0 +1,71 @@
+name: yaagwadb-wp
+
+services:
+  db:
+    image: mariadb:11.4
+    environment:
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wordpress
+      MARIADB_PASSWORD: wordpress
+      MARIADB_ROOT_PASSWORD: wordpress-root
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  minio:
+    image: bitnamilegacy/minio:2025.4.22
+    environment:
+      MINIO_ROOT_USER: yaagwadb
+      MINIO_ROOT_PASSWORD: yaagwadb-secret
+      MINIO_DEFAULT_BUCKETS: yaagwadb-wp
+    ports:
+      - "127.0.0.1:9011:9001"
+    volumes:
+      - minio-data:/bitnami/minio/data
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  wordpress:
+    build:
+      context: .
+      additional_contexts:
+        yaagwadb: ../file-db
+    image: yaagwadb-wp
+    # Apache・mount・daemon を順に停止するための猶予
+    stop_grace_period: 30s
+    devices:
+      - /dev/fuse
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      # MinIO credentials used by the yaagwadb daemon
+      AWS_ACCESS_KEY_ID: yaagwadb
+      AWS_SECRET_ACCESS_KEY: yaagwadb-secret
+    ports:
+      - "127.0.0.1:8000:80"
+    volumes:
+      - wordpress-data:/var/www/html
+      - ./data/yaagwadb:/var/lib/yaagwadb
+
+volumes:
+  db-data:
+  minio-data:
+  wordpress-data:

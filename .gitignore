@@ -1,0 +1,6 @@
+data/
+tmp/*
+!.gitkeep
+.task
+build/
+.DS_Store

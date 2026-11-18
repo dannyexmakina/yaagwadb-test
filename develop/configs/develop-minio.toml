@@ -1,0 +1,23 @@
+# Paths inside the development container. Data lives in the develop-data volume, separated per object storage
+data_directory = "/var/lib/yaagwadb/minio"
+socket = "/var/lib/yaagwadb/minio/daemon.sock"
+log_level = "debug"
+
+[object_storage]
+# Stored in minio from develop/compose.yaml (task containers:develop starts it and creates the bucket).
+kind = "s3"
+bucket = "yaagwadb-develop"
+region = "us-east-1"
+endpoint = "http://minio:9000"
+
+[daemon]
+# Kept short to make behavior easy to observe
+index_archive_interval = "1m"
+logical_delete_grace_period = "5m"
+
+[mount]
+point = "/mnt/yaagwadb"
+
+[hrana]
+# All addresses inside the container; compose publishes the port only on the host's localhost
+listen = "0.0.0.0:8080"

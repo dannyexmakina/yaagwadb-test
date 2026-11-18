@@ -1,0 +1,114 @@
+name: yaagwadb-tests
+
+# Settings for mounting FUSE inside a container. Shared by the fuse and develop services
+x-fuse-container: &fuse-container
+  image: golang:1.26.2-bookworm
+  devices:
+    - /dev/fuse
+  cap_add:
+    - SYS_ADMIN
+  security_opt:
+    - apparmor:unconfined
+  working_dir: /src
+  volumes:
+    - ../../file-db:/src
+    - go-module-cache:/go/pkg/mod
+    - go-build-cache:/root/.cache/go-build
+
+services:
+  minio:
+    # The official minio/minio image is no longer distributed, so use the Bitnami build
+    image: bitnamilegacy/minio:2025.4.22
+    environment:
+      MINIO_ROOT_USER: yaagwadb
+      MINIO_ROOT_PASSWORD: yaagwadb-secret
+      # Bucket used by the development daemon (tests create their own buckets)
+      MINIO_DEFAULT_BUCKETS: yaagwadb-develop
+    ports:
+      - "9000:9000"
+      # Console
+      - "9001:9001"
+    tmpfs:
+      - /bitnami/minio/data
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  fake-gcs:
+    image: fsouza/fake-gcs-server:1.56.1
+    command: -scheme http -port 4443 -public-host localhost:4443 -backend memory
+    ports:
+      - "4443:4443"
+
+  fake-gcs-bucket:
+    profiles: ["bucket"]
+    image: curlimages/curl:8.11.1
+    depends_on:
+      - fake-gcs
+    # On later runs the bucket exists and 409 is returned, which also counts as success
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        status=$$(curl -sS -o /dev/null -w '%{http_code}' --retry-connrefused --retry 30
+        -X POST -H 'Content-Type: application/json' -d '{"name":"yaagwadb-develop"}'
+        'http://fake-gcs:4443/storage/v1/b?project=yaagwadb-develop')
+        && echo "$$status" && { [ "$$status" = 200 ] || [ "$$status" = 409 ]; }
+
+  fuse:
+    <<: *fuse-container
+    profiles: ["fuse"]
+    environment:
+      YAAGWADB_FUSE_INTEGRATION: "1"
+    command:
+      - sh
+      - -c
+      - apt-get update -qq && apt-get install -y -qq fuse3 >/dev/null && go test -race -count=1 -v -run TestFUSE ./mount/
+
+  # Development daemon and mount (task run)
+  develop:
+    <<: *fuse-container
+    # Image with fuse3. yaagwadb is the binary built on the host into build/linux/ (task build:linux)
+    build:
+      context: .
+      dockerfile: develop.Dockerfile
+    image: yaagwadb-develop
+    volumes:
+      - ../../file-db:/src
+      - ..:/test
+      # daemon data. Not stored in the host repository
+      - develop-data:/var/lib/yaagwadb
+    profiles: ["develop"]
+    ports:
+      # hrana. Must match [hrana] listen in develop/configs/develop-*.toml. Published only with compose run --service-ports
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      minio:
+        condition: service_healthy
+      fake-gcs:
+        condition: service_started
+    environment:
+      STORAGE: ${STORAGE:-minio}
+      # Object storage credentials (develop-minio.toml) and emulator (develop-fake-gcs.toml)
+      AWS_ACCESS_KEY_ID: yaagwadb
+      AWS_SECRET_ACCESS_KEY: yaagwadb-secret
+      STORAGE_EMULATOR_HOST: http://fake-gcs:4443
+      # Open file limit of the daemon. Empty leaves it as is (task run:limited sets it)
+      DAEMON_NOFILE: ${DAEMON_NOFILE:-}
+      # Interval (seconds) and count for polling status until the daemon responds
+      DAEMON_WAIT_INTERVAL: "0.2"
+      DAEMON_WAIT_ATTEMPTS: "50"
+      YAAGWADB_BINARY: /src/build/linux/yaagwadb
+      # Directory of develop-<STORAGE>.toml
+      DEVELOP_CONFIGS: /test/develop/configs
+      # Must match [mount] point in develop/configs/develop-*.toml
+      DEVELOP_MOUNT_POINT: /mnt/yaagwadb
+      # "false" starts the daemon and hrana without the mount (task run:hrana)
+      DEVELOP_MOUNT: ${DEVELOP_MOUNT:-true}
+
+volumes:
+  develop-data:
+  go-module-cache:
+  go-build-cache:

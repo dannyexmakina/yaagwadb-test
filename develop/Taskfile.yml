@@ -1,0 +1,329 @@
+version: "3"
+
+vars:
+  # Root of this repository (this file is in develop/)
+  ROOT: "{{.TASKFILE_DIR}}/.."
+  # yaagwadb source code
+  YAAGWADB: "{{.ROOT}}/../file-db"
+  # Location of the built yaagwadb binaries
+  BUILD_DIRECTORY: "{{.YAAGWADB}}/build"
+  # Location of the built test tools
+  TOOL_BUILD_DIRECTORY: "{{.ROOT}}/build"
+  # Paths inside the development container (must match the volumes in compose.yaml)
+  CONTAINER_TOOLS: /test/build/linux
+  CONTAINER_CONFIGS: /test/develop/configs
+  # Test container definitions
+  COMPOSE: docker compose -f {{.TASKFILE_DIR}}/compose.yaml
+  # Endpoints exposed by the minio and fake-gcs services in develop/compose.yaml (ports must match compose.yaml)
+  S3_ENDPOINT: http://localhost:9000
+  GCS_ENDPOINT: localhost:4443
+  # Name of the development container started by task run (used by task dev:shell)
+  DEVELOP_CONTAINER: yaagwadb-develop
+  # Mount point inside the development container (where develop/develop.sh mounts yaagwadb)
+  DEVELOP_MOUNT_POINT: /mnt/yaagwadb
+  # Bucket used by the development daemon (must match develop/configs/develop-*.toml and compose.yaml)
+  DEVELOP_BUCKET: yaagwadb-develop
+  # minio container credentials (must match MINIO_ROOT_USER and MINIO_ROOT_PASSWORD in compose.yaml)
+  MINIO_USER: yaagwadb
+  MINIO_PASSWORD: yaagwadb-secret
+  # Network created by develop/compose.yaml (project name yaagwadb-tests)
+  COMPOSE_NETWORK: yaagwadb-tests_default
+  # Image used to query the fake-gcs-server bucket listing
+  CURL_IMAGE: curlimages/curl:8.11.1
+
+tasks:
+  default:
+    cmds:
+      - task --list-all -t {{.TASKFILE}}
+    silent: true
+
+  build:
+    desc: Build the yaagwadb binary into build/ of the yaagwadb repository
+    dir: "{{.YAAGWADB}}"
+    cmds:
+      - go build -o {{.BUILD_DIRECTORY}}/yaagwadb ./cmd
+    sources:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+      # Files embedded in the binary
+      - assets/*
+    generates:
+      - "{{.BUILD_DIRECTORY}}/yaagwadb"
+
+  build:linux:
+    desc: Build Linux yaagwadb for the development container into build/linux/ of the yaagwadb repository. Rebuilds only if sources changed
+    dir: "{{.YAAGWADB}}"
+    vars: &linux-vars
+      # Architecture of the Docker host (arm64 for OrbStack on Apple Silicon)
+      ARCH:
+        sh: docker version --format '{{"{{"}}.Server.Arch{{"}}"}}'
+    env: &linux-env
+      GOOS: linux
+      GOARCH: "{{.ARCH}}"
+      CGO_ENABLED: "0"
+    cmds:
+      - go build -o {{.BUILD_DIRECTORY}}/linux/yaagwadb ./cmd
+    sources:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+      # Files embedded in the binary
+      - assets/*
+    generates:
+      - "{{.BUILD_DIRECTORY}}/linux/yaagwadb"
+
+  build:linux:load:
+    desc: Build the Linux load test for the development container into build/linux/. Rebuilds only if sources changed
+    dir: "{{.ROOT}}"
+    vars: *linux-vars
+    env: *linux-env
+    cmds:
+      - go build -o {{.TOOL_BUILD_DIRECTORY}}/linux/yaagwadb-load ./load
+    sources: &go-sources
+      - "**/*.go"
+      - go.mod
+      - go.sum
+      # Generated gRPC code of yaagwadb
+      - ../file-db/protocol/*.go
+    generates:
+      - "{{.TOOL_BUILD_DIRECTORY}}/linux/yaagwadb-load"
+
+  build:linux:bench:
+    desc: Build the Linux benchmark for the development container into build/linux/. Rebuilds only if sources changed
+    dir: "{{.ROOT}}"
+    vars: *linux-vars
+    env: *linux-env
+    cmds:
+      - go build -o {{.TOOL_BUILD_DIRECTORY}}/linux/yaagwadb-bench ./bench
+    sources: *go-sources
+    generates:
+      - "{{.TOOL_BUILD_DIRECTORY}}/linux/yaagwadb-bench"
+
+  build:linux:hrana:
+    desc: Build the Linux hrana test for the development container into build/linux/. Rebuilds only if sources changed
+    dir: "{{.ROOT}}"
+    vars: *linux-vars
+    env: *linux-env
+    cmds:
+      - go build -o {{.TOOL_BUILD_DIRECTORY}}/linux/yaagwadb-hrana-test ./hrana
+    sources: *go-sources
+    generates:
+      - "{{.TOOL_BUILD_DIRECTORY}}/linux/yaagwadb-hrana-test"
+
+  run:minio:
+    desc: Start the development daemon, hrana and mount in a Linux container with MinIO as object storage. Stop with Ctrl-C
+    aliases: [run]
+    cmds:
+      - task: run:develop
+        vars: { STORAGE: minio }
+
+  run:fakegcs:
+    desc: Start the development daemon, hrana and mount in a Linux container with fake-gcs-server as object storage. Stop with Ctrl-C
+    cmds:
+      - task: run:develop
+        vars: { STORAGE: fake-gcs }
+
+  run:hrana:
+    desc: "Start the development daemon and hrana without the mount (MinIO). hrana is reachable from the host at http://127.0.0.1:8080. Stop with Ctrl-C"
+    cmds:
+      - task: run:develop
+        vars: { STORAGE: minio, DEVELOP_MOUNT: "false" }
+
+  run:limited:
+    desc: "Like task run (MinIO), with the daemon's open file limit lowered so that load tests reach it (e.g. NOFILE=128 task run:limited)"
+    vars:
+      NOFILE: '{{.NOFILE | default "256"}}'
+    cmds:
+      - task: run:develop
+        vars: { STORAGE: minio, DAEMON_NOFILE: "{{.NOFILE}}" }
+
+  run:develop:
+    internal: true
+    dir: "{{.ROOT}}"
+    requires:
+      vars: [STORAGE]
+    vars:
+      # STORAGE names develop/configs/develop-<STORAGE>.toml and is passed to develop/develop.sh
+      CONFIG: develop/configs/develop-{{.STORAGE}}.toml
+      # Open file limit of the daemon passed to develop/develop.sh. Empty leaves it as is
+      DAEMON_NOFILE: '{{.DAEMON_NOFILE | default ""}}'
+      # "false" leaves out the mount (task run:hrana)
+      DEVELOP_MOUNT: '{{.DEVELOP_MOUNT | default "true"}}'
+    preconditions:
+      - sh: test -f {{.CONFIG}}
+        msg: "{{.CONFIG}} not found"
+    deps: [build:linux]
+    cmds:
+      - task: containers:develop
+      # --build rebuilds only if develop.Dockerfile changed (otherwise the cache is used)
+      # --service-ports publishes the hrana port to the host
+      - "STORAGE={{.STORAGE}} DAEMON_NOFILE={{.DAEMON_NOFILE}} DEVELOP_MOUNT={{.DEVELOP_MOUNT}} {{.COMPOSE}} run --build --service-ports --rm --name {{.DEVELOP_CONTAINER}} develop"
+
+  containers:up:
+    desc: Start the object storage test containers
+    cmds:
+      - "{{.COMPOSE}} up -d --wait minio fake-gcs"
+
+  containers:develop:
+    desc: Start minio and fake-gcs for development and create the daemon bucket yaagwadb-develop
+    deps: [containers:up]
+    cmds:
+      - "{{.COMPOSE}} run --rm fake-gcs-bucket"
+
+  containers:down:
+    desc: Stop the test containers
+    cmds:
+      - "{{.COMPOSE}} down"
+
+  test:
+    desc: All tests
+    cmds:
+      - task: test:vet
+      - task: test:unit
+      - task: test:fuse
+      - task: test:object-storage
+
+  test:vet:
+    desc: go vet of yaagwadb and the test tools
+    cmds:
+      - cd {{.YAAGWADB}} && go vet ./...
+      - cd {{.ROOT}} && go vet ./...
+
+  test:unit:
+    desc: Unit, crash injection, and restore tests (no containers needed)
+    dir: "{{.YAAGWADB}}"
+    cmds:
+      - go test -race -count=1 ./...
+
+  test:fuse:
+    desc: Run FUSE integration tests in a Linux container
+    cmds:
+      - "{{.COMPOSE}} run --rm fuse"
+
+  test:object-storage:
+    desc: S3 (MinIO) and GCS (fake-gcs-server) integration tests
+    dir: "{{.YAAGWADB}}"
+    deps: [containers:up]
+    env:
+      # Point to the develop/compose.yaml containers. Without them, S3 and GCS tests are skipped
+      YAAGWADB_S3_ENDPOINT: "{{.S3_ENDPOINT}}"
+      YAAGWADB_GCS_ENDPOINT: "{{.GCS_ENDPOINT}}"
+    cmds:
+      - defer: { task: containers:down }
+      - go test -race -count=1 -run 'TestS3|TestGoogleCloudStorage' ./object_storage/
+
+  check:hrana:
+    desc: Check INSERT, SELECT, UPDATE, DELETE and the refusals through the hrana of the container started by task run
+    deps: [build:linux:hrana]
+    vars:
+      # Set STORAGE=fake-gcs when the daemon was started with task run:fakegcs
+      STORAGE: '{{.STORAGE | default "minio"}}'
+    cmds:
+      - docker exec {{.DEVELOP_CONTAINER}} {{.CONTAINER_TOOLS}}/yaagwadb-hrana-test -c {{.CONTAINER_CONFIGS}}/develop-{{.STORAGE}}.toml
+
+  check:load:
+    desc: "Load test reads and writes through gRPC against the daemon started by task run. Options follow -- (e.g. task check:load -- -duration 1m -size 1048576)"
+    cmds:
+      - task: check:load:run
+        vars: { OPTIONS: "{{.CLI_ARGS}}" }
+
+  check:load:mount:
+    desc: "Load test reads and writes through the mount of the container started by task run. Options follow --"
+    cmds:
+      - task: check:load:run
+        vars: { OPTIONS: "-mode mount -mountpoint {{.DEVELOP_MOUNT_POINT}} {{.CLI_ARGS}}" }
+
+  check:load:stress:
+    desc: "Load test past the limits: doubles the writers up to 1024 and holds 512 writes open, then verifies. Options follow -- (e.g. task check:load:stress -- -mode mount -mountpoint /mnt/yaagwadb)"
+    cmds:
+      - task: check:load:run
+        vars: { OPTIONS: "-writers 4 -ramp-max 1024 -hold 512 -duration 10s {{.CLI_ARGS}}" }
+
+  check:load:run:
+    internal: true
+    deps: [build:linux:load]
+    vars:
+      # Set STORAGE=fake-gcs when the daemon was started with task run:fakegcs
+      STORAGE: '{{.STORAGE | default "minio"}}'
+    cmds:
+      - docker exec {{.DEVELOP_CONTAINER}} {{.CONTAINER_TOOLS}}/yaagwadb-load -c {{.CONTAINER_CONFIGS}}/develop-{{.STORAGE}}.toml {{.OPTIONS}}
+
+  check:bench:
+    desc: "Benchmark of reads and writes against the plain file system, through gRPC and the mount of the container started by task run. Options follow -- (e.g. task check:bench -- -count 100 -sizes 4096,1048576)"
+    deps: [build:linux:bench]
+    vars:
+      # Set STORAGE=fake-gcs when the daemon was started with task run:fakegcs
+      STORAGE: '{{.STORAGE | default "minio"}}'
+    cmds:
+      # The plain file system is the container's /tmp
+      - docker exec {{.DEVELOP_CONTAINER}} {{.CONTAINER_TOOLS}}/yaagwadb-bench -c {{.CONTAINER_CONFIGS}}/develop-{{.STORAGE}}.toml -mountpoint {{.DEVELOP_MOUNT_POINT}} -plain /tmp {{.CLI_ARGS}}
+
+  dev:shell:
+    desc: Enter the container started by task run at the mount point
+    cmds:
+      - docker exec -it -w {{.DEVELOP_MOUNT_POINT}} {{.DEVELOP_CONTAINER}} bash
+
+  dev:put:
+    desc: "Write a local file to the mount point of the container started by task run (e.g. task dev:put -- ~/Downloads/test.png)"
+    # Relative paths are resolved from the directory where task was run
+    dir: "{{.USER_WORKING_DIR}}"
+    vars:
+      # CLI_ARGS arrives shell-quoted (e.g. arguments with spaces), so expand it as is
+      SOURCE: "{{.CLI_ARGS}}"
+    preconditions:
+      - sh: test -n "{{.SOURCE}}"
+        msg: "Specify the file to write after -- (e.g. task dev:put -- ~/Downloads/test.png)"
+      - sh: test -f {{.SOURCE}}
+        msg: "Specify exactly one file to write after -- ({{.SOURCE}} not found)"
+    cmds:
+      # docker cp bypasses the mount and writes to the underlying directory, so write from a process in the container
+      - docker exec -i {{.DEVELOP_CONTAINER}} sh -c 'cat > "{{.DEVELOP_MOUNT_POINT}}/$1"' sh "$(basename {{.SOURCE}})" < {{.SOURCE}}
+
+  dev:delete:
+    desc: "Delete a file written by dev:put from the mount point. Accepts a local file path or just the name (e.g. task dev:delete -- ~/Downloads/test.png)"
+    vars:
+      # CLI_ARGS arrives shell-quoted (e.g. arguments with spaces), so expand it as is
+      TARGET: "{{.CLI_ARGS}}"
+    preconditions:
+      - sh: test -n "{{.TARGET}}"
+        msg: "Specify the file to delete after -- (e.g. task dev:delete -- ~/Downloads/test.png)"
+    cmds:
+      # As with dev:put, delete by file name directly under the mount point. The local file is kept
+      - docker exec {{.DEVELOP_CONTAINER}} sh -c 'rm "{{.DEVELOP_MOUNT_POINT}}/$1"' sh "$(basename {{.TARGET}})"
+
+  dev:list:
+    desc: List files at the mount point of the container started by task run (including dotfiles)
+    cmds:
+      - docker exec {{.DEVELOP_CONTAINER}} ls -lA {{.DEVELOP_MOUNT_POINT}}
+
+  dev:list:minio:
+    desc: List objects in the MinIO development bucket
+    cmds:
+      - >-
+        {{.COMPOSE}} exec minio sh -c
+        'mc alias set local http://localhost:9000 {{.MINIO_USER}} {{.MINIO_PASSWORD}} >/dev/null &&
+        mc ls --recursive local/{{.DEVELOP_BUCKET}}'
+
+  dev:list:fakegcs:
+    desc: List objects in the fake-gcs-server development bucket
+    cmds:
+      # Query from a container so that nothing has to be installed on the host
+      - >-
+        docker run --rm --network {{.COMPOSE_NETWORK}} {{.CURL_IMAGE}}
+        -fsS 'http://fake-gcs:4443/storage/v1/b/{{.DEVELOP_BUCKET}}/o'
+
+  dev:sql:
+    desc: "Run one SQL statement through the hrana of the container started by task run and print the response (e.g. task dev:sql -- 'SELECT path, size FROM objects')"
+    deps: [build:linux:hrana]
+    vars:
+      # Set STORAGE=fake-gcs when the daemon was started with task run:fakegcs
+      STORAGE: '{{.STORAGE | default "minio"}}'
+      # CLI_ARGS arrives shell-quoted, so it is passed to the container shell as one argument
+      STATEMENT: "{{.CLI_ARGS}}"
+    preconditions:
+      - sh: test -n "{{.STATEMENT}}"
+        msg: "Specify the statement after -- (e.g. task dev:sql -- 'SELECT path, size FROM objects')"
+    cmds:
+      # JSON escaping of the statement is left to Go inside the container, so nothing is installed on the host
+      - docker exec {{.DEVELOP_CONTAINER}} {{.CONTAINER_TOOLS}}/yaagwadb-hrana-test -c {{.CONTAINER_CONFIGS}}/develop-{{.STORAGE}}.toml -sql {{.STATEMENT}}
