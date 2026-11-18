@@ -1,11 +1,11 @@
 #!/bin/sh
 set -eu
 
-# daemon・mount・Apache は www-data で実行する
+# Run the daemon, mount, and Apache as www-data
 run_as="setpriv --reuid=www-data --regid=www-data --init-groups"
 config=/etc/yaagwadb/config.toml
 mount_point=/var/www/html/wp-content/uploads
-# mount の終了を待つ上限（0.2 秒単位の回数）。アンマウント後も終了しない場合があるため、超えた場合は強制終了する
+# Max wait for mount to exit (in 0.2 s steps). Mount may not exit after unmounting, so kill it if exceeded
 mount_stop_attempts=25
 
 mkdir -p "$mount_point"
@@ -28,8 +28,8 @@ done
 $run_as yaagwadb -c "$config" mount &
 mount=$!
 
-# WordPress 本体の展開と Apache の起動は公式イメージの entrypoint に任せる
-# Apache は終了時にプロセスグループ全体へ SIGTERM を送るため、setsid で別のプロセスグループにする
+# Delegate WordPress extraction and Apache startup to the official image's entrypoint
+# Apache sends SIGTERM to its whole process group on exit, so use setsid to run it in a separate group
 setsid docker-entrypoint.sh apache2-foreground &
 apache=$!
 

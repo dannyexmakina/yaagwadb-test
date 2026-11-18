@@ -38,7 +38,7 @@ services:
       additional_contexts:
         yaagwadb: ../yaagwadb
     image: yaagwadb-wp
-    # Apache・mount・daemon を順に停止するための猶予
+    # Grace period to stop Apache, mount, and daemon in order
     stop_grace_period: 30s
     devices:
       - /dev/fuse

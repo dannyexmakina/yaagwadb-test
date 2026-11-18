@@ -1,9 +1,78 @@
+# YaagwaDB Test
+
+Development environment and tests for YaagwaDB, and Docker containers for WordPress using YaagwaDB.
+
+- [Development environment and tests](docs/en/development.md)
+
+## WordPress
+
+`wp-content/uploads` is a YaagwaDB FUSE mount, backed up to MinIO.
+
+### Components
+
+- `wordpress`
+  - WordPress (Apache) and the YaagwaDB daemon and mount
+  - The daemon, mount, and Apache run as www-data
+- `db`
+  - MariaDB
+- `minio`
+  - YaagwaDB backup destination (bucket `yaagwadb-wp`)
+
+### Prerequisites
+
+- YaagwaDB source code in `../yaagwadb`
+- Docker Compose (with `additional_contexts` support)
+- [Task](https://taskfile.dev/)
+
+### Start
+
+```sh
+task up
+```
+
+- WordPress
+  - <http://localhost:8000>
+- MinIO console
+  - <http://localhost:9011> (user `yaagwadb`, password `yaagwadb-secret`)
+
+### Stop
+
+```sh
+task down
+```
+
+### Tasks
+
+- `task up`
+  - Build and start
+- `task down`
+  - Stop
+- `task clean`
+  - Stop and remove all volumes
+- `task logs [-- <service>]`
+  - Show logs
+- `task status`
+  - Show the YaagwaDB file count and task queue status
+- `task tasks [-- <options>]`
+  - Show YaagwaDB tasks
+- `task list`
+  - List files in uploads
+- `task shell`
+  - Start a www-data shell in uploads in the wordpress container
+- `task checksum`
+  - Show SHA-256 of all files in uploads
+- `task recovery:wipe`
+  - Delete YaagwaDB local data and start (restore from MinIO)
+- `task test:recovery`
+  - Recovery test. Checks that the SHA-256 of uploads matches before and after `recovery:wipe`
+
+---
+
 # YaagwaDB テスト
 
 YaagwaDB の開発環境・テストと、YaagwaDB を使用した WordPress の Docker コンテナ群。
 
 - [開発環境とテスト](docs/ja/development.md)
-- [Development environment and tests](docs/en/development.md)
 
 ## WordPress
 

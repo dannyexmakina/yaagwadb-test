@@ -11,6 +11,6 @@ RUN apt-get update \
 COPY --from=build /yaagwadb /usr/local/bin/yaagwadb
 COPY config.toml /etc/yaagwadb/config.toml
 COPY entrypoint.sh /usr/local/bin/yaagwadb-wp-entrypoint.sh
-# 公式イメージの SIGWINCH を entrypoint.sh が受ける SIGTERM に戻す
+# Revert the official image's SIGWINCH stop signal to SIGTERM, handled by entrypoint.sh
 STOPSIGNAL SIGTERM
 ENTRYPOINT ["sh", "/usr/local/bin/yaagwadb-wp-entrypoint.sh"]
