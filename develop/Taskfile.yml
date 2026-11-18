@@ -4,7 +4,7 @@ vars:
   # Root of this repository (this file is in develop/)
   ROOT: "{{.TASKFILE_DIR}}/.."
   # yaagwadb source code
-  YAAGWADB: "{{.ROOT}}/../file-db"
+  YAAGWADB: "{{.ROOT}}/../yaagwadb"
   # Location of the built yaagwadb binaries
   BUILD_DIRECTORY: "{{.YAAGWADB}}/build"
   # Location of the built test tools
@@ -85,7 +85,7 @@ tasks:
       - go.mod
       - go.sum
       # Generated gRPC code of yaagwadb
-      - ../file-db/protocol/*.go
+      - ../yaagwadb/protocol/*.go
     generates:
       - "{{.TOOL_BUILD_DIRECTORY}}/linux/yaagwadb-load"
 

@@ -21,7 +21,7 @@ YaagwaDB の開発環境・テストと、YaagwaDB を使用した WordPress の
 
 ### 前提
 
-- `../file-db` に YaagwaDB のソースコード
+- `../yaagwadb` に YaagwaDB のソースコード
 - Docker Compose（`additional_contexts` 対応版）
 - [Task](https://taskfile.dev/)
 

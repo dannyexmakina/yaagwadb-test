@@ -18,7 +18,7 @@ task run:hrana   # MinIO。マウントせず daemon と hrana のみ
 
 Ctrl-C で daemon・hrana・マウントが停止する。
 
-- yaagwadb のバイナリは、ホストで Linux 向けに `../file-db/build/linux/yaagwadb` へクロスビルドし（`task build:linux`）、コンテナから使用。
+- yaagwadb のバイナリは、ホストで Linux 向けに `../yaagwadb/build/linux/yaagwadb` へクロスビルドし（`task build:linux`）、コンテナから使用。
 - ソースコードか埋め込みファイル（assets）が変更された場合のみ再ビルド
 - コンテナを起動すると、daemon と hrana を起動してマウント
 

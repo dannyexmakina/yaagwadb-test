@@ -18,7 +18,7 @@ task run:hrana   # MinIO. The daemon and hrana only, without the mount
 
 Ctrl-C stops the daemon, hrana, and the mount.
 
-- The yaagwadb binary is cross-built on the host for Linux into `../file-db/build/linux/yaagwadb` (`task build:linux`) and used from the container.
+- The yaagwadb binary is cross-built on the host for Linux into `../yaagwadb/build/linux/yaagwadb` (`task build:linux`) and used from the container.
 - It is rebuilt only if the source code or the embedded files (assets) change
 - When the container starts, it starts the daemon and hrana and mounts
 

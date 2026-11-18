@@ -11,7 +11,7 @@ x-fuse-container: &fuse-container
     - apparmor:unconfined
   working_dir: /src
   volumes:
-    - ../../file-db:/src
+    - ../../yaagwadb:/src
     - go-module-cache:/go/pkg/mod
     - go-build-cache:/root/.cache/go-build
 
@@ -76,7 +76,7 @@ services:
       dockerfile: develop.Dockerfile
     image: yaagwadb-develop
     volumes:
-      - ../../file-db:/src
+      - ../../yaagwadb:/src
       - ..:/test
       # daemon data. Not stored in the host repository
       - develop-data:/var/lib/yaagwadb
